@@ -1,0 +1,74 @@
+1. Dashboard principal
+
+Vizualizare de ansamblu a stării clusterului
+Grafice cu numărul de amenințări detectate (în timp real)
+Heatmap cu zonele cele mai afectate din cluster
+Indicatori de performanță (KPI) pentru securitate
+
+2. Vizualizarea amenințărilor
+
+Tabel interactiv cu toate alertele/amenințările detectate
+Filtrare după severitate, tip de atac, status (remediat/în așteptare)
+Timeline al evenimentelor de securitate
+Detalii complete pentru fiecare alertă
+
+3. Hartă topologică a clusterului
+
+Vizualizare grafică a nodurilor și pod-urilor
+Evidențierea conexiunilor suspecte între containere
+Cod de culori pentru indicarea severității amenințărilor
+Posibilitatea de zoom și filtrare pe namespace
+
+4. Panou de acțiuni de răspuns
+
+Butoane pentru acțiuni manuale (izolare container, blocare trafic)
+Toggle pentru activarea/dezactivarea răspunsului automat
+Istoricul acțiunilor de remediere aplicate
+Formular pentru adăugarea de reguli personalizate
+
+5. Simulator de atacuri
+
+Interfață pentru lansarea atacurilor simulate
+Selecție din scenarii predefinite (Container Escape, Privilege Escalation, etc.)
+Vizualizarea rezultatelor simulării
+Raport despre eficiența detecției
+
+6. Setări și configurare
+
+Configurarea modelelor ML
+Gestionarea regulilor de detecție
+Setări pentru răspunsul automat
+Integrări cu alte sisteme
+
+Arhitectură tehnică propusă
+Pentru implementarea acestei soluții, recomand următoarea arhitectură:
+Frontend (React)
+
+React cu TypeScript pentru tipare sigure
+Redux sau Context API pentru state management
+Material-UI sau Tailwind CSS pentru componente vizuale
+D3.js sau Cytoscape.js pentru vizualizări grafica complexe (harta topologică)
+Socket.io pentru date în timp real
+
+Backend
+
+Java (Spring Boot) pentru API-ul principal
+Python pentru modulele de Machine Learning și analiză
+FastAPI pentru endpoint-urile Python
+
+Comunicarea cu Kubernetes
+
+Kubernetes Java Client pentru interacțiunea cu API-ul Kubernetes
+Webhook-uri pentru evenimente în timp real
+
+Procesarea datelor
+
+Elasticsearch pentru stocarea logurilor și evenimentelor
+Kafka pentru procesarea fluxurilor de evenimente
+Redis pentru cache și date temporare
+
+Machine Learning
+
+Pipeline-uri de ML în Python (scikit-learn, TensorFlow)
+Model de detecție a anomaliilor (Isolation Forest, Autoencoders)
+Feature engineering din loguri și evenimente
