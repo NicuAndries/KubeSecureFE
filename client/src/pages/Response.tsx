@@ -256,41 +256,43 @@ const Response: React.FC = () => {
         </Card>
       </div>
 
-      <div className="mb-6 flex justify-between items-center">
+      <div className="mb-6">
         <Tabs defaultValue="actions" className="w-full" onValueChange={setActiveTab}>
-          <TabsList className="grid w-full max-w-md grid-cols-2">
-            <TabsTrigger value="actions" className="flex items-center">
-              <Shield className="mr-2 h-4 w-4" />
-              Response Actions
-            </TabsTrigger>
-            <TabsTrigger value="history" className="flex items-center">
-              <History className="mr-2 h-4 w-4" />
-              Action History
-            </TabsTrigger>
-          </TabsList>
-          
-          {activeTab === 'actions' && (
-            <div className="flex items-center ml-auto space-x-2 mt-2">
-              <div className="flex items-center space-x-2">
-                <Switch id="auto-respond" />
-                <label htmlFor="auto-respond" className="text-sm">Enable Automatic Response</label>
+          <div className="flex justify-between items-center">
+            <TabsList className="grid w-full max-w-md grid-cols-2">
+              <TabsTrigger value="actions" className="flex items-center">
+                <Shield className="mr-2 h-4 w-4" />
+                Response Actions
+              </TabsTrigger>
+              <TabsTrigger value="history" className="flex items-center">
+                <History className="mr-2 h-4 w-4" />
+                Action History
+              </TabsTrigger>
+            </TabsList>
+            
+            {activeTab === 'actions' && (
+              <div className="flex items-center ml-auto space-x-2 mt-2">
+                <div className="flex items-center space-x-2">
+                  <Switch id="auto-respond" />
+                  <label htmlFor="auto-respond" className="text-sm">Enable Automatic Response</label>
+                </div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
+          
+          <Card className="bg-bgdark-card mt-4">
+            <CardContent className="p-6">
+              <TabsContent value="actions" className="mt-0">
+                {renderResponseActions()}
+              </TabsContent>
+              
+              <TabsContent value="history" className="mt-0">
+                {renderActionHistory()}
+              </TabsContent>
+            </CardContent>
+          </Card>
         </Tabs>
       </div>
-
-      <Card className="bg-bgdark-card">
-        <CardContent className="p-6">
-          <TabsContent value="actions" className="mt-0">
-            {renderResponseActions()}
-          </TabsContent>
-          
-          <TabsContent value="history" className="mt-0">
-            {renderActionHistory()}
-          </TabsContent>
-        </CardContent>
-      </Card>
 
       <div className="mt-6">
         <h2 className="text-xl font-medium mb-4">Custom Rules</h2>

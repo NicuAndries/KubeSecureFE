@@ -53,6 +53,9 @@ const Topology: React.FC = () => {
     // Clear previous visualizations
     svg.selectAll('*').remove();
     
+    // Create a group for all elements
+    const g = svg.append('g');
+    
     // Create zoom behavior
     const zoom = d3.zoom()
       .scaleExtent([0.5, 2])
@@ -63,9 +66,6 @@ const Topology: React.FC = () => {
     // Apply zoom
     svg.call(zoom as any);
     svg.call(zoom.transform as any, d3.zoomIdentity.scale(zoomLevel));
-    
-    // Create a group for all elements
-    const g = svg.append('g');
     
     // Filter nodes based on UI toggles
     const filteredNodes = data.nodes.filter((node: any) => {
