@@ -1,5 +1,18 @@
 import { 
   users, 
+  threats,
+  vulnerabilities,
+  recommendations,
+  simulations,
+  simulationResults,
+  responseActions,
+  actionHistory,
+  kpiData as kpiDataTable,
+  threatActivity,
+  topologyNodes,
+  topologyLinks,
+  topologyStats,
+  threatHeatmap,
   type User, 
   type InsertUser,
   type Threat,
@@ -17,15 +30,17 @@ import {
   generateThreatActivityData, 
   topologyData, 
   heatmapData, 
-  vulnerabilities,
-  recommendations,
+  vulnerabilities as mockVulnerabilities,
+  recommendations as mockRecommendations,
   attackSimulations,
-  responseActions,
-  actionHistory,
+  responseActions as mockResponseActions,
+  actionHistory as mockActionHistory,
   generateThreats,
   mlModels,
   detectionRules
 } from "@/lib/mockData";
+import { db } from "./db";
+import { eq, inArray, and, or, like, isNull, desc, sql } from "drizzle-orm";
 
 // Storage interface for all CRUD operations
 export interface IStorage {
@@ -351,4 +366,545 @@ export class MemStorage implements IStorage {
   }
 }
 
-export const storage = new MemStorage();
+export class DatabaseStorage implements IStorage {
+  // User methods
+  async getUser(id: number): Promise<User | undefined> {
+    try {
+      const [user] = await db.select().from(users).where(eq(users.id, id));
+      return user;
+    } catch (error) {
+      console.error("Error getting user by ID:", error);
+      return undefined;
+    }
+  }
+
+  async getUserByUsername(username: string): Promise<User | undefined> {
+    try {
+      const [user] = await db.select().from(users).where(eq(users.username, username));
+      return user;
+    } catch (error) {
+      console.error("Error getting user by username:", error);
+      return undefined;
+    }
+  }
+
+  async createUser(insertUser: InsertUser): Promise<User> {
+    try {
+      const [user] = await db.insert(users).values(insertUser).returning();
+      return user;
+    } catch (error) {
+      console.error("Error creating user:", error);
+      throw error;
+    }
+  }
+
+  // Dashboard methods
+  async getDashboardKPI(): Promise<KPIData> {
+    try {
+      const [kpiEntry] = await db.select().from(kpiDataTable).orderBy(desc(kpiDataTable.updatedAt)).limit(1);
+      
+      if (!kpiEntry) {
+        throw new Error("No KPI data found");
+      }
+      
+      return {
+        securityScore: kpiEntry.securityScore,
+        activeThreats: {
+          total: kpiEntry.activeThreatTotal,
+          change: kpiEntry.activeThreatChange,
+          critical: kpiEntry.activeThreatCritical,
+          high: kpiEntry.activeThreatHigh,
+          medium: kpiEntry.activeThreatMedium,
+          low: kpiEntry.activeThreatLow
+        },
+        vulnerableContainers: {
+          affected: kpiEntry.vulnerableContainersAffected,
+          total: kpiEntry.vulnerableContainersTotal
+        },
+        complianceStatus: {
+          percentage: kpiEntry.compliancePercentage,
+          change: kpiEntry.complianceChange,
+          pciDss: kpiEntry.compliancePciDss,
+          gdpr: kpiEntry.complianceGdpr,
+          hipaa: kpiEntry.complianceHipaa
+        }
+      };
+    } catch (error) {
+      console.error("Error getting KPI data:", error);
+      return kpiData;
+    }
+  }
+
+  async getThreatActivity(range: string): Promise<ThreatActivityData> {
+    try {
+      // Get threat activity data for the specified range
+      const activityData = await db.select().from(threatActivity)
+        .where(eq(threatActivity.range, range))
+        .orderBy(threatActivity.id);
+      
+      if (activityData.length === 0) {
+        throw new Error(`No threat activity data found for range: ${range}`);
+      }
+      
+      return {
+        chartData: activityData.map(item => ({
+          time: item.time,
+          critical: item.critical,
+          high: item.high,
+          medium: item.medium,
+          low: item.low
+        }))
+      };
+    } catch (error) {
+      console.error(`Error getting threat activity data for range ${range}:`, error);
+      return generateThreatActivityData(range as 'hourly' | 'daily' | 'weekly');
+    }
+  }
+
+  async getClusterTopology(namespace?: string): Promise<ClusterTopology> {
+    try {
+      // Get nodes
+      let nodesQuery = db.select().from(topologyNodes);
+      if (namespace && namespace !== 'all') {
+        nodesQuery = nodesQuery.where(eq(topologyNodes.namespace, namespace));
+      }
+      const nodes = await nodesQuery;
+      
+      // Get node IDs for filtering links
+      const nodeIds = nodes.map(n => n.id);
+      
+      // Get links between these nodes
+      const links = await db.select().from(topologyLinks)
+        .where(
+          and(
+            inArray(topologyLinks.source, nodeIds),
+            inArray(topologyLinks.target, nodeIds)
+          )
+        );
+      
+      // Get stats
+      let statsQuery = db.select().from(topologyStats);
+      if (namespace && namespace !== 'all') {
+        statsQuery = statsQuery.where(eq(topologyStats.namespace, namespace));
+      } else {
+        statsQuery = statsQuery.where(isNull(topologyStats.namespace));
+      }
+      const [stats] = await statsQuery;
+      
+      if (!stats) {
+        throw new Error("No topology stats found");
+      }
+      
+      return {
+        nodes: nodes.map(n => ({
+          id: n.id,
+          name: n.name,
+          type: n.type,
+          namespace: n.namespace,
+          severity: n.severity
+        })),
+        links: links.map(l => ({
+          source: l.source,
+          target: l.target,
+          suspicious: l.suspicious,
+          traffic: l.traffic
+        })),
+        stats: {
+          nodes: stats.nodes,
+          pods: stats.pods,
+          services: stats.services,
+          podConnections: stats.podConnections,
+          suspiciousConnections: stats.suspiciousConnections,
+          threatCount: stats.threatCount
+        }
+      };
+    } catch (error) {
+      console.error("Error getting cluster topology:", error);
+      
+      if (namespace && namespace !== 'all') {
+        // Filter topology data by namespace
+        const filteredNodes = topologyData.nodes.filter(node => node.namespace === namespace);
+        const filteredNodeIds = new Set(filteredNodes.map(n => n.id));
+        
+        const filteredLinks = topologyData.links.filter(link => {
+          const sourceNode = topologyData.nodes.find(n => n.id === link.source);
+          const targetNode = topologyData.nodes.find(n => n.id === link.target);
+          
+          return sourceNode && targetNode && 
+                filteredNodeIds.has(sourceNode.id) && 
+                filteredNodeIds.has(targetNode.id);
+        });
+        
+        return {
+          nodes: filteredNodes,
+          links: filteredLinks,
+          stats: {
+            ...topologyData.stats,
+            nodes: filteredNodes.filter(n => n.type === 'node').length,
+            pods: filteredNodes.filter(n => n.type === 'pod').length,
+            services: filteredNodes.filter(n => n.type === 'service').length,
+            podConnections: filteredLinks.length,
+            suspiciousConnections: filteredLinks.filter(l => l.suspicious).length,
+            threatCount: filteredNodes.filter(n => n.severity !== 'none').length
+          }
+        };
+      }
+      
+      return topologyData;
+    }
+  }
+
+  async getThreatHeatmap(): Promise<ThreatHeatmapData> {
+    try {
+      const heatmapData = await db.select().from(threatHeatmap);
+      
+      if (heatmapData.length === 0) {
+        throw new Error("No threat heatmap data found");
+      }
+      
+      return {
+        heatmapData: heatmapData.map(item => ({
+          day: item.day,
+          week: item.week,
+          threats: item.threats,
+          intensity: item.intensity,
+          severity: item.severity as 'critical' | 'high' | 'medium' | 'low' | 'none'
+        }))
+      };
+    } catch (error) {
+      console.error("Error getting threat heatmap:", error);
+      return heatmapData;
+    }
+  }
+
+  async getTopVulnerabilities(limit: number = 3): Promise<Vulnerability[]> {
+    try {
+      const vulnData = await db.select().from(vulnerabilities)
+        .orderBy(desc(vulnerabilities.score))
+        .limit(limit);
+      
+      if (!vulnData || vulnData.length === 0) {
+        throw new Error("No vulnerabilities found");
+      }
+      
+      return vulnData.map(v => ({
+        id: v.id,
+        cveId: v.cveId,
+        title: v.title,
+        score: v.score,
+        severity: v.severity as 'critical' | 'high' | 'medium' | 'low',
+        affectedResources: v.affectedResources
+      }));
+    } catch (error) {
+      console.error("Error getting top vulnerabilities:", error);
+      return mockVulnerabilities.slice(0, limit);
+    }
+  }
+
+  async getSecurityRecommendations(limit: number = 3): Promise<{
+    recommendations: SecurityRecommendation[];
+    pendingCount: number;
+  }> {
+    try {
+      const recsData = await db.select().from(recommendations).limit(limit);
+      const [{ count }] = await db.select({ count: sql`count(*)` }).from(recommendations);
+      
+      if (recsData.length === 0) {
+        throw new Error("No security recommendations found");
+      }
+      
+      return {
+        recommendations: recsData.map(r => ({
+          id: r.id,
+          title: r.title,
+          severity: r.severity as 'critical' | 'high' | 'medium' | 'low',
+          description: r.description,
+          estimatedTime: r.estimatedTime,
+          action: r.action
+        })),
+        pendingCount: Number(count) - recsData.length
+      };
+    } catch (error) {
+      console.error("Error getting security recommendations:", error);
+      return {
+        recommendations: mockRecommendations.slice(0, limit),
+        pendingCount: mockRecommendations.length - limit
+      };
+    }
+  }
+
+  async getThreats(page: number, pageSize: number, filters?: {
+    search?: string;
+    status?: string;
+    severity?: string;
+  }): Promise<{ threats: Threat[]; total: number }> {
+    try {
+      // Build query with filters
+      let query = db.select().from(threats);
+      
+      if (filters) {
+        if (filters.status) {
+          query = query.where(eq(threats.status, filters.status));
+        }
+        
+        if (filters.severity) {
+          query = query.where(eq(threats.severity, filters.severity));
+        }
+        
+        if (filters.search) {
+          query = query.where(
+            or(
+              like(threats.type, `%${filters.search}%`),
+              like(threats.target, `%${filters.search}%`),
+              like(threats.namespace, `%${filters.search}%`),
+              like(threats.description, `%${filters.search}%`)
+            )
+          );
+        }
+      }
+      
+      // Get total count for pagination
+      const [{ count }] = await db.select({ count: sql`count(*)` }).from(threats);
+      
+      // Apply pagination
+      const offset = (page - 1) * pageSize;
+      const threatsData = await query
+        .orderBy(desc(threats.detectedAt))
+        .limit(pageSize)
+        .offset(offset);
+      
+      return {
+        threats: threatsData,
+        total: Number(count)
+      };
+    } catch (error) {
+      console.error("Error getting threats:", error);
+      return generateThreats(page, pageSize, filters);
+    }
+  }
+
+  async getAttackSimulations(): Promise<{
+    simulations: AttackSimulation[];
+    stats: {
+      totalScenarios: number;
+      totalRuns: number;
+      detectionRate: number;
+    };
+  }> {
+    try {
+      const simulationsData = await db.select().from(simulations);
+      
+      // Get count of simulation runs
+      const [{ runCount }] = await db.select({ 
+        runCount: sql`count(*)`
+      }).from(simulationResults);
+      
+      // Get detection rate - successful detections / total runs
+      const [{ successCount }] = await db.select({ 
+        successCount: sql`count(*)`
+      }).from(simulationResults)
+        .where(eq(simulationResults.detectionSuccess, true));
+      
+      const totalRuns = Number(runCount);
+      const totalSuccess = Number(successCount);
+      const detectionRate = totalRuns > 0 ? Math.round((totalSuccess / totalRuns) * 100) : 0;
+      
+      if (simulationsData.length === 0) {
+        throw new Error("No attack simulations found");
+      }
+      
+      return {
+        simulations: simulationsData,
+        stats: {
+          totalScenarios: simulationsData.length,
+          totalRuns: totalRuns,
+          detectionRate: detectionRate
+        }
+      };
+    } catch (error) {
+      console.error("Error getting attack simulations:", error);
+      return {
+        simulations: attackSimulations,
+        stats: {
+          totalScenarios: attackSimulations.length,
+          totalRuns: 24,
+          detectionRate: 78,
+        }
+      };
+    }
+  }
+
+  async getSimulationResults(): Promise<{
+    results: any[];
+  }> {
+    try {
+      const resultsData = await db.select().from(simulationResults);
+      
+      if (resultsData.length === 0) {
+        throw new Error("No simulation results found");
+      }
+      
+      return {
+        results: resultsData
+      };
+    } catch (error) {
+      console.error("Error getting simulation results:", error);
+      return {
+        results: [
+          {
+            id: "sim-result-1",
+            simulationId: "sim-1",
+            simulationName: "Container Escape Attack",
+            startTime: "2023-07-15 09:12:34",
+            endTime: "2023-07-15 09:18:22",
+            status: "completed",
+            detectionSuccess: true,
+            detectionTime: "00:02:48",
+            steps: [
+              { name: "Exploit container vulnerability", status: "completed", detected: true },
+              { name: "Escape to host system", status: "completed", detected: true },
+              { name: "Lateral movement", status: "completed", detected: false },
+              { name: "Data exfiltration attempt", status: "completed", detected: true },
+            ],
+            summary: {
+              threatsDetected: 3,
+              totalThreats: 4,
+              meanTimeToDetect: "00:03:12",
+              successRate: 75,
+            }
+          },
+          // Other simulation results...
+        ]
+      };
+    }
+  }
+
+  async getResponseActions(): Promise<{
+    actions: ResponseAction[];
+    stats: {
+      total: number;
+      automated: number;
+      actionsToday: number;
+      pendingThreats: number;
+    };
+  }> {
+    try {
+      const actionsData = await db.select().from(responseActions);
+      
+      if (actionsData.length === 0) {
+        throw new Error("No response actions found");
+      }
+      
+      // Count automated actions
+      const automated = actionsData.filter(a => a.automated && a.enabled).length;
+      
+      // Count actions executed today
+      const today = new Date().toISOString().split('T')[0];
+      const [{ actionsToday }] = await db.select({ 
+        actionsToday: sql`count(*)`
+      }).from(actionHistory)
+        .where(like(actionHistory.timestamp, `${today}%`));
+      
+      // Count pending threats
+      const [{ pendingThreats }] = await db.select({ 
+        pendingThreats: sql`count(*)`
+      }).from(threats)
+        .where(
+          not(
+            inArray(
+              threats.status, 
+              ['resolved', 'remediation']
+            )
+          )
+        );
+      
+      return {
+        actions: actionsData.map(a => ({
+          id: a.id,
+          name: a.name,
+          description: a.description,
+          automated: a.automated,
+          enabled: a.enabled,
+          lastExecuted: a.lastExecuted || 'Never',
+          target: a.target,
+          applicableThreats: a.applicableThreats
+        })),
+        stats: {
+          total: actionsData.length,
+          automated: automated,
+          actionsToday: Number(actionsToday),
+          pendingThreats: Number(pendingThreats)
+        }
+      };
+    } catch (error) {
+      console.error("Error getting response actions:", error);
+      return {
+        actions: mockResponseActions,
+        stats: {
+          total: mockResponseActions.length,
+          automated: mockResponseActions.filter(a => a.automated).length,
+          actionsToday: 8,
+          pendingThreats: 4
+        }
+      };
+    }
+  }
+
+  async getActionHistory(): Promise<{
+    history: any[];
+  }> {
+    try {
+      const historyData = await db.select().from(actionHistory)
+        .orderBy(desc(actionHistory.timestamp))
+        .limit(20);
+      
+      if (historyData.length === 0) {
+        throw new Error("No action history found");
+      }
+      
+      return {
+        history: historyData
+      };
+    } catch (error) {
+      console.error("Error getting action history:", error);
+      return {
+        history: mockActionHistory
+      };
+    }
+  }
+
+  async getMLModels(): Promise<{
+    models: any[];
+  }> {
+    try {
+      // ML Models are not stored in the database yet, so we return the mock data
+      return {
+        models: mlModels
+      };
+    } catch (error) {
+      console.error("Error getting ML models:", error);
+      return {
+        models: mlModels
+      };
+    }
+  }
+
+  async getDetectionRules(): Promise<{
+    rules: any[];
+  }> {
+    try {
+      // Detection rules are not stored in the database yet, so we return the mock data
+      return {
+        rules: detectionRules
+      };
+    } catch (error) {
+      console.error("Error getting detection rules:", error);
+      return {
+        rules: detectionRules
+      };
+    }
+  }
+}
+
+// Use the database storage implementation
+export const storage = new DatabaseStorage();
